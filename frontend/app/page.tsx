@@ -6,9 +6,17 @@ export default function Home() {
   return (
     <Suspense
       fallback={
-        <main style={{ padding: 24 }}>
-          Memuat menu...
-        </main>
+        <div
+          className="tk-simple-loading"
+          role="status"
+          aria-label="Memuat halaman"
+        >
+          <div className="tk-simple-loading-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
       }
     >
       <CustomerPage />
