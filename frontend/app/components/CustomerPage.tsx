@@ -30,6 +30,8 @@ import {
 type Page = "beranda" | "favorit" | "pesanan";
 type Drawer = "keranjang" | "checkout" | "preview" | null;
 type Payment = "qris" | "transfer" | "cash";
+type RemovalRequest = { kind: "cart" | "favorite"; item: MenuItem };
+type ActionNotice = { kind: "cart" | "favorite"; message: string };
 
 export default function CustomerPage() {
   const params = useSearchParams();
@@ -41,15 +43,184 @@ export default function CustomerPage() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [drawer, setDrawer] = useState<Drawer>(null);
+  const [viewReady, setViewReady] = useState(false);
   const [detail, setDetail] = useState<MenuItem | null>(null);
   const [detailQuantity, setDetailQuantity] = useState(1);
   const [toast, setToast] = useState<{ name: string; quantity: number } | null>(null);
+  const [actionNotice, setActionNotice] = useState<ActionNotice | null>(null);
+  const [removalRequest, setRemovalRequest] = useState<RemovalRequest | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [payment, setPayment] = useState<Payment>("qris");
+  const [orderTab, setOrderTab] = useState<"ongoing" | "past">("ongoing");
 
   const categoryListRef = useRef<HTMLDivElement>(null);
   const [categoryScroll, setCategoryScroll] = useState({ left: false, right: false });
+
+
+const isModalOpen = drawer !== null || detail !== null;
+
+  
+useEffect(() => {
+  const frame = requestAnimationFrame(() => {
+    try {
+      const stored = sessionStorage.getItem("tapkasir-view");
+
+      if (stored) {
+        const saved = JSON.parse(stored);
+
+        if (["beranda", "favorit", "pesanan"].includes(saved.page)) {
+          setPage(saved.page);
+        }
+
+        const product = menuItems.find(
+          (item) => item.id === saved.detailId
+        );
+
+        if (product) {
+          setDetail(product);
+          setDrawer(null);
+        } else if (
+          ["keranjang", "checkout", "preview"].includes(saved.drawer)
+        ) {
+          setDrawer(saved.drawer);
+        }
+
+        if (saved.cart && typeof saved.cart === "object") {
+          setCart(saved.cart);
+        }
+
+        if (Array.isArray(saved.favorites)) {
+          setFavorites(saved.favorites);
+        }
+
+        if (typeof saved.detailQuantity === "number") {
+          setDetailQuantity(saved.detailQuantity);
+        }
+
+        if (typeof saved.customerName === "string") {
+          setCustomerName(saved.customerName);
+        }
+
+        if (typeof saved.customerPhone === "string") {
+          setCustomerPhone(saved.customerPhone);
+        }
+
+        if (["qris", "transfer", "cash"].includes(saved.payment)) {
+          setPayment(saved.payment);
+        }
+
+        if (typeof saved.search === "string") {
+          setSearch(saved.search);
+        }
+
+        if (typeof saved.searchOpen === "boolean") {
+          setSearchOpen(saved.searchOpen);
+        }
+
+        if (categories.includes(saved.category)) {
+          setCategory(saved.category);
+        }
+
+        if (saved.orderTab === "ongoing" || saved.orderTab === "past") {
+          setOrderTab(saved.orderTab);
+        }
+      }
+    } catch (error) {
+      console.error("Gagal memulihkan tampilan:", error);
+    } finally {
+      setViewReady(true);
+    }
+  });
+
+  return () => cancelAnimationFrame(frame);
+}, []);
+
+  // Simpan seluruh tampilan setelah proses pemulihan selesai.
+  // Tanpa efek ini, sessionStorage terus berisi drawer lama (misalnya "keranjang").
+  useEffect(() => {
+    if (!viewReady) return;
+
+    try {
+      sessionStorage.setItem(
+        "tapkasir-view",
+        JSON.stringify({
+          page,
+          drawer,
+          detailId: detail?.id ?? null,
+          detailQuantity,
+          category,
+          searchOpen,
+          search,
+          favorites,
+          cart,
+          customerName,
+          customerPhone,
+          payment,
+          orderTab,
+        })
+      );
+    } catch (error) {
+      console.error("Gagal menyimpan tampilan TapKasir:", error);
+    }
+  }, [
+    viewReady, page, drawer, detail, detailQuantity, category,
+    searchOpen, search, favorites, cart, customerName, customerPhone,
+    payment, orderTab,
+  ]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const body = document.body;
+    const scrollY = window.scrollY;
+
+    const previousStyles = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+      paddingRight: body.style.paddingRight,
+    };
+
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      Object.assign(body.style, previousStyles);
+
+      const html = document.documentElement;
+      const previousBehavior = html.style.scrollBehavior;
+
+      html.style.scrollBehavior = "auto";
+      window.scrollTo(0, scrollY);
+      html.style.scrollBehavior = previousBehavior;
+    };
+  }, [isModalOpen]);
+
+
+  useEffect(() => {
+    if (searchOpen && page === "beranda") {
+      document.getElementById("menu")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  }, [searchOpen, page]);
+
 
   // Tampilkan petunjuk geser hanya saat daftar kategori lebih lebar dari layar.
   useEffect(() => {
@@ -84,6 +255,21 @@ export default function CustomerPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!actionNotice) return;
+    const timer = window.setTimeout(() => setActionNotice(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [actionNotice]);
+
+  useEffect(() => {
+    if (!removalRequest) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRemovalRequest(null);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [removalRequest]);
+
   const cartItems = useMemo(
     () => menuItems.filter((item) => (cart[item.id] || 0) > 0),
     [cart]
@@ -101,6 +287,13 @@ export default function CustomerPage() {
   });
 
   function changeQuantity(id: string, difference: number) {
+    const item = menuItems.find((entry) => entry.id === id);
+    const currentQuantity = cart[id] || 0;
+    if (item && currentQuantity > 0 && currentQuantity + difference <= 0) {
+      setRemovalRequest({ kind: "cart", item });
+      return;
+    }
+
     setCart((current) => {
       const next = { ...current };
       const quantity = Math.max(0, (next[id] || 0) + difference);
@@ -108,6 +301,27 @@ export default function CustomerPage() {
       else next[id] = quantity;
       return next;
     });
+  }
+
+  function requestCartRemoval(item: MenuItem) {
+    setRemovalRequest({ kind: "cart", item });
+  }
+
+  function confirmRemoval() {
+    if (!removalRequest) return;
+    const { kind, item } = removalRequest;
+    if (kind === "cart") {
+      setCart((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      setActionNotice({ kind: "cart", message: `${item.name} dihapus dari keranjang.` });
+    } else {
+      setFavorites((current) => current.filter((id) => id !== item.id));
+      setActionNotice({ kind: "favorite", message: `${item.name} dihapus dari favorit.` });
+    }
+    setRemovalRequest(null);
   }
 
   function openDetail(item: MenuItem) {
@@ -130,10 +344,13 @@ export default function CustomerPage() {
     setToast({ name: item.name, quantity });
   }
 
-  function toggleFavorite(id: string) {
-    setFavorites((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
-    );
+  function toggleFavorite(item: MenuItem) {
+    if (favorites.includes(item.id)) {
+      setRemovalRequest({ kind: "favorite", item });
+      return;
+    }
+    setFavorites((current) => current.includes(item.id) ? current : [...current, item.id]);
+    setActionNotice({ kind: "favorite", message: `${item.name} ditambahkan ke favorit.` });
   }
 
   function openPage(nextPage: Page) {
@@ -163,6 +380,23 @@ export default function CustomerPage() {
     setDetail(null);
   }
 
+  
+  if (!viewReady) {
+    return (
+      <div
+        className="tk-simple-loading"
+        role="status"
+        aria-label="Memuat halaman"
+      >
+        <div className="tk-simple-loading-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="tk-app">
       <header className="tk-header">
@@ -178,7 +412,21 @@ export default function CustomerPage() {
           </button>
           <div className="tk-header-right">
             {meja && <span className="tk-table-badge"><MapPin size={14} /> Meja {meja}</span>}
-            <button className="tk-icon-button" aria-label="Cari menu" onClick={() => { setPage("beranda"); setSearchOpen((v) => !v); }}><Search size={20} /></button>
+            <button
+              type="button"
+              className={`tk-search-toggle tk-header-search-button ${searchOpen ? "tk-search-active" : ""}`}
+              aria-label={searchOpen ? "Tutup pencarian" : "Cari menu"}
+              aria-expanded={searchOpen}
+              aria-controls="tk-menu-search"
+              onClick={() => {
+                setPage("beranda");
+                setCategory("Semua Menu");
+                setSearchOpen(true);
+              }}
+            >
+              <Search size={17} />
+              <span>Cari menu</span>
+            </button>
             <button className="tk-icon-button tk-cart-icon" aria-label="Buka keranjang" onClick={() => setDrawer("keranjang")}>
               <ShoppingBag size={20} />
               {totalQuantity > 0 && <span className="tk-counter">{totalQuantity}</span>}
@@ -208,11 +456,84 @@ export default function CustomerPage() {
       )}
 
       {page === "pesanan" ? (
-        <section className="tk-empty-page">
-          <span className="tk-kicker">PESANANMU</span>
-          <h2>Belum ada pesanan</h2>
-          <p>Riwayat dan status pesanan akan muncul di sini setelah sistem terhubung dengan backend.</p>
-          <button className="tk-primary" onClick={() => openPage("beranda")}>Lihat Menu <ArrowRight size={16} /></button>
+        <section className="tk-orders-page">
+          <header className="tk-orders-heading">
+            <span className="tk-kicker">PESANANMU</span>
+          </header>
+
+          <div className="tk-orders-tabs" role="tablist" aria-label="Jenis pesanan">
+            <button
+              type="button"
+              role="tab"
+              id="tk-tab-ongoing"
+              aria-selected={orderTab === "ongoing"}
+              aria-controls="tk-orders-panel"
+              className={orderTab === "ongoing" ? "tk-order-tab-active" : ""}
+              onClick={() => setOrderTab("ongoing")}
+            >
+              Berlangsung
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tk-tab-past"
+              aria-selected={orderTab === "past"}
+              aria-controls="tk-orders-panel"
+              className={orderTab === "past" ? "tk-order-tab-active" : ""}
+              onClick={() => setOrderTab("past")}
+            >
+              Riwayat
+            </button>
+          </div>
+
+          <div
+            id="tk-orders-panel"
+            role="tabpanel"
+            aria-labelledby={orderTab === "ongoing" ? "tk-tab-ongoing" : "tk-tab-past"}
+          >
+            {orderTab === "ongoing" ? (
+              totalQuantity > 0 ? (
+                <div className="tk-order-draft">
+                  <span className="tk-order-status">Belum checkout</span>
+                  <h3>Menu masih di keranjang</h3>
+                  <div className="tk-order-items">
+                    {cartItems.map((item) => (
+                      <div className="tk-order-item" key={item.id}>
+                        <span>{cart[item.id]} × {item.name}</span>
+                        <span>{rupiah(item.price * cart[item.id])}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="tk-order-subtotal">
+                    <span>Subtotal ({totalQuantity} item)</span>
+                    <strong>{rupiah(subtotal)}</strong>
+                  </div>
+                  <p className="tk-order-note">
+                    Menu yang dipilih belum menjadi pesanan aktif dan belum dikirim ke kasir.
+                  </p>
+                  <button
+                    type="button"
+                    className="tk-primary tk-full"
+                    onClick={() => setDrawer("keranjang")}
+                  >
+                    <ShoppingBag size={17} /> Buka Keranjang <ArrowRight size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="tk-orders-empty">
+                  <ShoppingBag size={38} strokeWidth={1.6} />
+                  <h3>Belum ada pesanan berlangsung</h3>
+                  <p>Menu yang kamu tambahkan akan terlihat di sini sebelum checkout.</p>
+                  <button type="button" className="tk-primary" onClick={() => openPage("beranda")}>Jelajahi Menu <ArrowRight size={16} /></button>
+                </div>
+              )
+            ) : (
+              <div className="tk-orders-empty">
+                <Coffee size={38} strokeWidth={1.6} />
+                <h3>Belum ada riwayat pesanan</h3>
+              </div>
+            )}
+          </div>
         </section>
       ) : (
         <main id="menu" className="tk-menu-section">
@@ -222,14 +543,28 @@ export default function CustomerPage() {
               <h2>{page === "favorit" ? "Menu favoritmu" : "Temukan menu favoritmu"}</h2>
               <p>{page === "favorit" ? "Semua yang kamu sukai, di satu tempat." : ""}</p>
             </div>
-            <button className="tk-search-toggle" onClick={() => setSearchOpen((open) => !open)}><Search size={17} /> Cari menu</button>
           </div>
 
           {searchOpen && (
-            <div className="tk-search-wrap">
-              <Search size={18} />
-              <input aria-label="Cari produk" placeholder="Cari espresso, matcha, croissant..." value={search} onChange={(event) => setSearch(event.target.value)} autoFocus />
-              {search && <button onClick={() => setSearch("")} aria-label="Hapus pencarian"><X size={18} /></button>}
+            <div id="tk-menu-search" className="tk-search-wrap" role="search">
+              <Search size={18} aria-hidden="true" />
+              <input
+                type="text"
+                inputMode="search"
+                aria-label="Cari menu"
+                placeholder="Cari espresso, matcha, croissant..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSearchOpen(false);
+                }}
+                autoFocus
+              />
+              {search && (
+                <button type="button" aria-label="Hapus pencarian" onClick={() => setSearch("")}>
+                  <X size={18} />
+                </button>
+              )}
             </div>
           )}
 
@@ -262,7 +597,7 @@ export default function CustomerPage() {
                   <div className="tk-product-photo" style={{ backgroundImage: `url("${item.image}")` }} role="img" aria-label={item.name}>
                     <button type="button" className="tk-product-photo-open" aria-label={`Lihat detail ${item.name}`} onClick={() => openDetail(item)} />
                     {item.tag && <span className="tk-product-tag">{item.tag}</span>}
-                    <button className={`tk-heart ${favorites.includes(item.id) ? "tk-heart-active" : ""}`} aria-label={favorites.includes(item.id) ? `Hapus ${item.name} dari favorit` : `Favoritkan ${item.name}`} onClick={() => toggleFavorite(item.id)}>
+                    <button className={`tk-heart ${favorites.includes(item.id) ? "tk-heart-active" : ""}`} aria-label={favorites.includes(item.id) ? `Hapus ${item.name} dari favorit` : `Favoritkan ${item.name}`} onClick={() => toggleFavorite(item)} aria-pressed={favorites.includes(item.id)}>
                       <Heart size={18} fill={favorites.includes(item.id) ? "currentColor" : "none"} />
                     </button>
                   </div>
@@ -280,11 +615,16 @@ export default function CustomerPage() {
           )}
         </main>
       )}
-
-      <footer className="tk-footer">
-        <div><strong>tapkasir.</strong><p>Pesan dengan mudah, nikmati waktumu.</p></div>
-        <span>Tampilan pelanggan </span>
-      </footer>
+      
+      {page === "beranda" && (
+        <footer className="tk-footer">
+          <div>
+            <strong>tapkasir.</strong>
+            <p>Pesan dengan mudah, nikmati waktumu.</p>
+          </div>
+          <span>Tampilan pelanggan</span>
+        </footer>
+      )}
 
       <nav className="tk-bottom-nav" aria-label="Navigasi mobile">
         <button className={page === "beranda" ? "tk-mobile-active" : ""} onClick={() => openPage("beranda")}><Coffee size={20} /> Menu</button>
@@ -306,19 +646,61 @@ export default function CustomerPage() {
         </div>
       )}
 
+      {actionNotice && (
+        <div className={`tk-action-toast ${toast ? "tk-action-toast-raised" : ""}`} role="status" aria-live="polite">
+          {actionNotice.kind === "favorite" ? <Heart size={18} fill="currentColor" /> : <Check size={18} />}
+          <span>{actionNotice.message}</span>
+          <button type="button" aria-label="Tutup notifikasi" onClick={() => setActionNotice(null)}><X size={16} /></button>
+        </div>
+      )}
+
       {(drawer || detail) && (
         <div className={`tk-overlay ${detail ? "tk-overlay-detail" : ""}`}>
-          <button className="tk-overlay-backdrop" aria-label="Tutup dialog" onClick={closeModal} />
+          <button
+            type="button"
+            className="tk-overlay-backdrop"
+            aria-label="Tutup dialog"
+            onClick={() => {
+              if (drawer !== "checkout" && drawer !== "preview") closeModal();
+            }}
+          />
           <section className="tk-modal" role="dialog" aria-modal="true" aria-label={detail ? `Detail ${detail.name}` : "Panel pelanggan"}>
-            <div className="tk-modal-head">
-              <button className="tk-modal-back" aria-label="Kembali" onClick={() => {
-                if (detail) setDetail(null);
-                else if (drawer === "checkout") setDrawer("keranjang");
-                else if (drawer === "preview") setDrawer("checkout");
-                else closeModal();
-              }}><ArrowLeft size={19} /></button>
-              <h2>{detail ? "Detail Menu" : drawer === "keranjang" ? "Keranjang" : drawer === "checkout" ? "Checkout" : "Pratinjau Pesanan"}</h2>
-              <button className="tk-modal-close" aria-label="Tutup" onClick={closeModal}><X size={19} /></button>
+            <div className="tk-modal-titlebar grid min-h-[78px] shrink-0 grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-3 border-b border-[#eee4d9] px-5">
+              {drawer === "checkout" || drawer === "preview" ? (
+                <button
+                  type="button"
+                  className="tk-modal-back col-start-1 justify-self-start"
+                  aria-label={drawer === "checkout" ? "Kembali ke keranjang" : "Kembali ke checkout"}
+                  onClick={() => setDrawer(drawer === "checkout" ? "keranjang" : "checkout")}
+                >
+                  <ArrowLeft size={19} />
+                </button>
+              ) : (
+                <span aria-hidden="true" />
+              )}
+
+              <h2 className="col-start-2 text-center">
+                {detail
+                  ? "Detail Menu"
+                  : drawer === "keranjang"
+                    ? "Keranjang"
+                    : drawer === "checkout"
+                      ? "Checkout"
+                      : "Pratinjau Pesanan"}
+              </h2>
+
+              {drawer === "checkout" || drawer === "preview" ? (
+                <span aria-hidden="true" />
+              ) : (
+                <button
+                  type="button"
+                  className="tk-modal-close col-start-3 justify-self-end"
+                  aria-label="Tutup"
+                  onClick={closeModal}
+                >
+                  <X size={19} />
+                </button>
+              )}
             </div>
             <div className="tk-modal-body">
               {detail && (
@@ -359,7 +741,7 @@ export default function CustomerPage() {
                           <div className="tk-cart-row" key={item.id}>
                             <div className="tk-cart-photo" style={{ backgroundImage: `url("${item.image}")` }} />
                             <div className="tk-cart-description"><strong>{item.name}</strong><span>{rupiah(item.price)}</span><div className="tk-quantity"><button aria-label={`Kurangi ${item.name}`} onClick={() => changeQuantity(item.id, -1)}><Minus size={14} /></button><b>{cart[item.id]}</b><button aria-label={`Tambah ${item.name}`} onClick={() => changeQuantity(item.id, 1)}><Plus size={14} /></button></div></div>
-                            <button className="tk-trash" aria-label={`Hapus ${item.name}`} onClick={() => changeQuantity(item.id, -cart[item.id])}><Trash2 size={17} /></button>
+                            <button className="tk-trash" aria-label={`Hapus ${item.name}`} onClick={() => requestCartRemoval(item)}><Trash2 size={17} /></button>
                           </div>
                         ))}
                       </div>
@@ -374,13 +756,12 @@ export default function CustomerPage() {
               {!detail && drawer === "checkout" && (
                 <form className="tk-checkout" onSubmit={submitCheckout}>
                   <div className="tk-checkout-table"><MapPin size={19} /><span><small>LOKASI PEMESANAN</small><strong>{meja ? `Meja ${meja}` : "Nomor meja belum terdeteksi"}</strong></span></div>
-                  {!meja && <p className="tk-warning">Untuk melanjutkan, buka halaman dari QR Code meja. Saat pengembangan, coba URL <code>/?meja=07</code>.</p>}
+                  {/* {!meja && <p className="tk-warning">Untuk melanjutkan, buka halaman dari QR Code meja. Saat pengembangan, coba URL <code>/?meja=07</code>.</p>} */}
                   <label>Nama pelanggan<input required maxLength={60} placeholder="Masukkan nama" value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></label>
                   <label>Nomor telepon<input required type="tel" inputMode="tel" pattern="[0-9+ ]{8,16}" title="Masukkan 8–16 karakter berupa angka, spasi, atau tanda +" placeholder="Contoh: 081234567890" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></label>
                   <h3>Metode pembayaran</h3>
                   <div className="tk-payment-list">
                     <button type="button" className={payment === "qris" ? "tk-payment-selected" : ""} onClick={() => setPayment("qris")}><QrCode size={23} /><span><strong>QRIS</strong><small>Bayar dengan e-wallet atau mobile banking</small></span>{payment === "qris" && <Check size={18} />}</button>
-                    <button type="button" className={payment === "transfer" ? "tk-payment-selected" : ""} onClick={() => setPayment("transfer")}><CreditCard size={23} /><span><strong>Transfer bank</strong><small>Instruksi rekening setelah order dibuat</small></span>{payment === "transfer" && <Check size={18} />}</button>
                     <button type="button" className={payment === "cash" ? "tk-payment-selected" : ""} onClick={() => setPayment("cash")}><Banknote size={23} /><span><strong>Tunai di kasir</strong><small>Bayar dengan menyebutkan nama dan nomor meja</small></span>{payment === "cash" && <Check size={18} />}</button>
                   </div>
                   <div className="tk-total"><span>Subtotal</span><strong>{rupiah(subtotal)}</strong></div>
@@ -406,6 +787,38 @@ export default function CustomerPage() {
                   <button className="tk-primary tk-full" onClick={() => setDrawer("checkout")}>Kembali ke Checkout</button>
                 </div>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {removalRequest && (
+        <div className="tk-confirm-overlay">
+          <button
+            type="button"
+            className="tk-confirm-backdrop"
+            aria-label="Batal menghapus"
+            onClick={() => setRemovalRequest(null)}
+          />
+          <section
+            className="tk-confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="tk-confirm-title"
+            aria-describedby="tk-confirm-description"
+          >
+            <div className="tk-confirm-icon">
+              {removalRequest.kind === "favorite" ? <Heart size={23} /> : <Trash2 size={23} />}
+            </div>
+            <h3 id="tk-confirm-title">
+              {removalRequest.kind === "favorite" ? "Hapus dari favorit?" : "Hapus dari keranjang?"}
+            </h3>
+            <p id="tk-confirm-description">
+              Yakin ingin menghapus <strong>{removalRequest.item.name}</strong> dari {removalRequest.kind === "favorite" ? "daftar favorit" : "keranjang"}?
+            </p>
+            <div className="tk-confirm-actions">
+              <button type="button" className="tk-confirm-cancel" autoFocus onClick={() => setRemovalRequest(null)}>Batal</button>
+              <button type="button" className="tk-confirm-delete" onClick={confirmRemoval}>Ya, hapus</button>
             </div>
           </section>
         </div>

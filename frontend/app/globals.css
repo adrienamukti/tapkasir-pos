@@ -1,3 +1,7 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 /* Semua class halaman pelanggan diawali tk- agar tidak berbenturan. */
 :root {
   color-scheme: light;
@@ -43,7 +47,7 @@ button:disabled {
 }
 
 .tk-app button:focus-visible,
-.tk-app input:focus-visible {
+.tk-app input:not([type="search"]):focus-visible {
   outline: 3px solid #bd926b;
   outline-offset: 3px;
 }
@@ -641,7 +645,8 @@ button:disabled {
   border-bottom: 1px solid #eee4d9;
 }
 
-.tk-modal-head h2 {
+.tk-modal-head h2,
+.tk-detail-modal-head h2 {
   font: 400 24px var(--font-heading), Georgia, serif;
   margin: 0;
 }
@@ -1048,10 +1053,6 @@ button:disabled {
     font-size: 11px;
   }
 
-  .tk-search-toggle {
-    font-size: 0;
-    padding: 10px;
-  }
 
   .tk-category-list {
     gap: 7px;
@@ -1381,5 +1382,616 @@ button:disabled {
 
   .tk-toast-dismiss {
     margin-left: auto;
+  }
+}
+
+/* Tombol Cari menu pada header, kolom input tetap di bagian katalog. */
+.tk-header-right .tk-header-search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 10px 15px;
+  min-height: 40px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.tk-header-right .tk-header-search-button.tk-search-active {
+  background: #f4eae0;
+}
+
+/* Hapus garis fokus tebal dari INPUT saja, tanpa mengubah tombol lain. */
+.tk-app .tk-search-wrap input:focus,
+.tk-app .tk-search-wrap input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.tk-search-wrap:focus-within {
+  border-color: #d6b99f;
+}
+
+@media (max-width: 740px) {
+  .tk-header-right .tk-header-search-button {
+    font-size: 12px;
+    padding: 9px 11px;
+  }
+}
+
+@media (max-width: 390px) {
+  .tk-header-right .tk-header-search-button {
+    gap: 4px;
+    font-size: 11px;
+    padding: 8px;
+  }
+}
+
+/* Judul semua modal rata tengah; grid kolom berasal dari Tailwind. */
+.tk-modal-titlebar {
+  flex: 0 0 auto;
+}
+
+.tk-modal-titlebar h2 {
+  margin: 0;
+  font: 400 24px var(--font-heading), Georgia, serif;
+}
+
+/* Feedback ketika favorit ditambah atau item dihapus. */
+.tk-heart.tk-heart-active {
+  color: #b34d48;
+  background: #ffece8;
+  animation: tk-heart-pop .35s ease-out;
+}
+
+@keyframes tk-heart-pop {
+  0% {
+    transform: scale(.78);
+  }
+
+  60% {
+    transform: scale(1.14);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.tk-action-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 160;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #eadacf;
+  background: #fffdfa;
+  color: #60412e;
+  border-radius: 13px;
+  box-shadow: 0 12px 36px rgba(30, 19, 12, .15);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tk-action-toast>svg {
+  color: #b34d48;
+  flex-shrink: 0;
+}
+
+.tk-action-toast span {
+  min-width: 0;
+}
+
+.tk-action-toast button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #907767;
+  padding: 2px;
+  margin-left: 2px;
+}
+
+.tk-action-toast-raised {
+  bottom: 100px;
+}
+
+/* Konfirmasi hapus: terpisah dari drawer agar tidak merusak isinya. */
+.tk-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.tk-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(26, 17, 12, .58);
+}
+
+.tk-confirm-dialog {
+  position: relative;
+  width: min(100%, 410px);
+  padding: 28px 25px 24px;
+  border-radius: 20px;
+  background: #fffdfa;
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(25, 14, 7, .25);
+}
+
+.tk-confirm-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 14px;
+  color: #9c5647;
+  background: #fbebe6;
+  border-radius: 50%;
+}
+
+.tk-confirm-dialog h3 {
+  margin: 0 0 9px;
+  color: #35241c;
+  font-size: 20px;
+}
+
+.tk-confirm-dialog p {
+  margin: 0;
+  color: #8a7769;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.tk-confirm-dialog p strong {
+  color: #513625;
+}
+
+.tk-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 25px;
+}
+
+.tk-confirm-actions button {
+  flex: 1;
+  min-height: 43px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tk-confirm-cancel {
+  background: #f7f0ea;
+  color: #654732;
+  border: 1px solid #e8dbce;
+}
+
+.tk-confirm-delete {
+  background: #a34f43;
+  color: white;
+  border: 1px solid #a34f43;
+}
+
+.tk-confirm-delete:hover {
+  background: #8e4036;
+}
+
+@media (max-width: 740px) {
+  .tk-action-toast {
+    bottom: 82px;
+  }
+
+  .tk-action-toast-raised {
+    bottom: 164px;
+  }
+
+  .tk-modal-titlebar h2 {
+    font-size: 21px;
+  }
+}
+
+/* REVISI: kolom pencarian tidak mempunyai outline ketika sedang diketik. */
+.tk-app .tk-search-wrap input,
+.tk-app .tk-search-wrap input:focus,
+.tk-app .tk-search-wrap input:focus-visible {
+  border: 0 !important;
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  background: transparent;
+  appearance: none;
+}
+
+/* Border luar tetap sama, baik sebelum maupun selama mengetik. */
+.tk-app .tk-search-wrap,
+.tk-app .tk-search-wrap:focus-within {
+  border-color: #e5d8c9;
+  outline: none;
+  box-shadow: none;
+}
+
+/* Tombol Cari menu selalu memiliki ikon dan tulisan, termasuk di HP. */
+@media (max-width: 740px) {
+  .tk-header-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding-inline: 14px;
+  }
+
+  .tk-header-right {
+    flex-shrink: 0;
+    gap: 5px;
+  }
+
+  .tk-header-right .tk-header-search-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 38px;
+    padding: 8px 12px;
+    gap: 7px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .tk-header-right .tk-header-search-button>span {
+    display: inline !important;
+    font-size: 12px !important;
+    line-height: 1.2;
+  }
+
+  .tk-header-right .tk-header-search-button>svg {
+    flex: 0 0 17px;
+    width: 17px;
+    height: 17px;
+  }
+}
+
+@media (max-width: 390px) {
+  .tk-header-inner {
+    gap: 4px;
+    padding-inline: 10px;
+  }
+
+  .tk-logo {
+    font-size: 19px;
+    gap: 5px;
+  }
+
+  .tk-logo-icon {
+    width: 29px;
+    height: 29px;
+  }
+
+  .tk-header-right {
+    gap: 2px;
+  }
+
+  .tk-header-right .tk-header-search-button {
+    gap: 5px;
+    padding: 8px 9px;
+  }
+
+  .tk-header-right .tk-header-search-button>span {
+    font-size: 11px !important;
+  }
+
+  .tk-header-right .tk-cart-icon {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* Soft Icon Highlight - Mobile Navigation */
+@media (max-width: 740px) {
+  .tk-bottom-nav button {
+    position: relative;
+    background: transparent;
+    color: #a39183;
+    gap: 3px;
+    transition: color 0.2s ease;
+  }
+
+  /* Perbaikan ikon Pesanan tanpa memperbesar ukurannya */
+  .tk-bottom-nav button:nth-child(2) svg {
+    padding: 9px;
+    overflow: visible;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Hilangkan indikator garis sebelumnya */
+  .tk-bottom-nav button::before {
+    display: none;
+  }
+
+  /* Lingkaran pada ikon */
+  .tk-bottom-nav button svg {
+    width: 38px;
+    height: 38px;
+    padding: 9px;
+    border-radius: 100%;
+    background: transparent;
+    transform: none;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
+  }
+
+  /* Menu yang sedang aktif */
+  .tk-bottom-nav button.tk-mobile-active {
+    background: transparent;
+    color: #634630;
+    font-weight: 700;
+  }
+
+  .tk-bottom-nav button.tk-mobile-active svg {
+    background: #f1e2d4;
+    color: #634630;
+    transform: none;
+  }
+
+  /* Efek ketika tombol ditekan */
+  .tk-bottom-nav button:active {
+    transform: none;
+  }
+
+  /* Efek hover hanya untuk perangkat dengan mouse */
+  @media (hover: hover) {
+    .tk-bottom-nav button:hover {
+      background: transparent;
+      color: #634630;
+    }
+
+    .tk-bottom-nav button:hover svg {
+      background: #f8eee4;
+      transform: none;
+    }
+
+    .tk-bottom-nav button.tk-mobile-active:hover svg {
+      background: #ead6c4;
+    }
+  }
+}
+
+/* Mengurangi animasi jika diminta oleh sistem */
+@media (prefers-reduced-motion: reduce) {
+
+  .tk-bottom-nav button,
+  .tk-bottom-nav button svg {
+    transition: none;
+  }
+}
+
+/* Loading TapKasir */
+.tk-simple-loading {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fffdfa;
+}
+
+.tk-simple-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: #795039;
+}
+
+.tk-simple-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tk-simple-loading-dots span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #a77551;
+  animation: tk-pulse 1.2s ease-in-out infinite;
+}
+
+.tk-simple-loading-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.tk-simple-loading-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes tk-pulse {
+
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tk-simple-loading-dots span {
+    animation: none;
+  }
+}
+
+/* Halaman Pesanan: dua tab + draft keranjang (belum menjadi order). */
+.tk-orders-page {
+  max-width: 780px;
+  min-height: 60vh;
+  margin: 48px auto 110px;
+  padding: 0 24px;
+}
+
+.tk-orders-heading {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.tk-orders-heading h2 {
+  font: 400 clamp(29px, 3vw, 38px) var(--font-heading), Georgia, serif;
+  color: #36251c;
+  margin: 8px 0 0;
+}
+
+.tk-orders-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 25px;
+}
+
+.tk-orders-tabs button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #806c5e;
+  border-radius: 999px;
+  padding: 13px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+.tk-orders-tabs button.tk-order-tab-active {
+  background: #634630;
+  color: white;
+  box-shadow: 0 4px 12px rgba(99, 70, 48, .12);
+}
+
+.tk-orders-tabs button:not(.tk-order-tab-active):hover {
+  background: #f7eee5;
+  color: #634630;
+}
+
+.tk-order-draft {
+  border: 1px solid #eaded1;
+  border-radius: 18px;
+  background: #fffdfa;
+  padding: 24px;
+}
+
+.tk-order-status {
+  display: inline-flex;
+  color: #885b3c;
+  background: #f5e9dc;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tk-order-draft h3 {
+  font-size: 20px;
+  margin: 16px 0 20px;
+  color: #36251c;
+}
+
+.tk-order-items {
+  display: grid;
+  gap: 12px;
+}
+
+.tk-order-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: #755d4c;
+  font-size: 13px;
+}
+
+.tk-order-item span:last-child {
+  color: #4c3526;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.tk-order-subtotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #ebe1d5;
+  color: #725d4c;
+  font-size: 13px;
+}
+
+.tk-order-subtotal strong {
+  font-size: 18px;
+  color: #36251c;
+}
+
+.tk-order-note {
+  margin: 17px 0 9px;
+  color: #938073;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.tk-orders-empty {
+  min-height: 260px;
+  padding: 54px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  color: #a77551;
+}
+
+.tk-orders-empty h3 {
+  color: #634630;
+  font-size: 19px;
+  margin: 8px 0 0;
+}
+
+.tk-orders-empty p {
+  color: #918174;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+@media (max-width: 740px) {
+  .tk-orders-page {
+    padding: 0 16px;
+    margin: 30px auto 100px;
+  }
+
+  .tk-order-draft {
+    padding: 20px;
+  }
+
+  .tk-orders-tabs button {
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tk-orders-tabs button {
+    transition: none;
   }
 }
