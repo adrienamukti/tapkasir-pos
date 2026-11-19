@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   Trash2,
   X,
+  RefreshCw,
 } from "lucide-react";
 import {
   categories,
@@ -26,6 +27,7 @@ import {
   type CategoryFilter,
   type MenuItem,
 } from "../data/menu";
+import { API_BASE_URL } from "../config";
 
 type Page = "beranda" | "favorit" | "pesanan";
 type Drawer = "keranjang" | "checkout" | "preview" | null;
@@ -35,9 +37,9 @@ type ActionNotice = { kind: "cart" | "favorite"; message: string };
 
 export default function CustomerPage() {
   const params = useSearchParams();
-  const meja = (params.get("meja") || "").trim().slice(0, 16);
+  const meja = (params.get("meja") || "01").trim().slice(0, 16);
   const [page, setPage] = useState<Page>("beranda");
-  const [category, setCategory] = useState<CategoryFilter>("Semua Menu");
+  const [category, setCategory] = useState<string>("Semua Menu");
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -52,10 +54,73 @@ export default function CustomerPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [payment, setPayment] = useState<Payment>("qris");
+
+  // Backend Integration States
+  const [menuList, setMenuList] = useState<MenuItem[]>(menuItems);
+  const [submitting, setSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [createdOrder, setCreatedOrder] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [activeOrder, setActiveOrder] = useState<any>(null);
   const [orderTab, setOrderTab] = useState<"ongoing" | "past">("ongoing");
 
   const categoryListRef = useRef<HTMLDivElement>(null);
   const [categoryScroll, setCategoryScroll] = useState({ left: false, right: false });
+
+  // 1. Ambil Menu Asli dari Backend
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/customer/menu`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json?.data && Array.isArray(json.data) && json.data.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const mapped: MenuItem[] = json.data.map((item: any) => ({
+            id: String(item.id),
+            name: item.nama_menu,
+            category: item.kategori || "Kopi",
+            description: item.deskripsi || "Menu spesial pilihan dari TapKasir",
+            price: item.harga_jual,
+            image:
+              item.kategori === "Makanan"
+                ? "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=85"
+                : "https://images.unsplash.com/photo-1511920170033-f8396924c348?w=800&q=85",
+            available: item.status_ketersediaan === "tersedia",
+          }));
+          setMenuList(mapped);
+        }
+      })
+      .catch((err) => {
+        console.warn("Menggunakan data menu lokal (backend offline):", err);
+      });
+  }, []);
+
+  // 2. Fetch Active Order jika ada order_id di localStorage
+  const fetchActiveOrder = (orderId?: number | string) => {
+    const id = orderId || (typeof window !== "undefined" ? localStorage.getItem("active_order_id") : null);
+    if (!id) return;
+
+    fetch(`${API_BASE_URL}/api/customer/order/${id}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json?.data) {
+          setActiveOrder(json.data);
+          if (createdOrder && createdOrder.pesanan && createdOrder.pesanan.id === json.data.id) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            setCreatedOrder((prev: any) => ({ ...prev, pesanan: json.data }));
+          }
+        }
+      })
+      .catch((err) => console.warn("Gagal refresh status pesanan:", err));
+  };
+
+  useEffect(() => {
+    fetchActiveOrder();
+    const timer = setInterval(() => {
+      fetchActiveOrder();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
 
 const isModalOpen = drawer !== null || detail !== null;
@@ -255,6 +320,14 @@ useEffect(() => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const dynamicCategories = useMemo(() => {
+    const set = new Set<string>(["Semua Menu"]);
+    menuList.forEach((m) => {
+      if (m.category) set.add(m.category);
+    });
+    return Array.from(set);
+  }, [menuList]);
+
   useEffect(() => {
     if (!actionNotice) return;
     const timer = window.setTimeout(() => setActionNotice(null), 3500);
@@ -271,13 +344,13 @@ useEffect(() => {
   }, [removalRequest]);
 
   const cartItems = useMemo(
-    () => menuItems.filter((item) => (cart[item.id] || 0) > 0),
-    [cart]
+    () => menuList.filter((item) => (cart[item.id] || 0) > 0),
+    [cart, menuList]
   );
   const totalQuantity = cartItems.reduce((sum, item) => sum + cart[item.id], 0);
   const subtotal = cartItems.reduce((sum, item) => sum + item.price * cart[item.id], 0);
 
-  const visibleItems = menuItems.filter((item) => {
+  const visibleItems = menuList.filter((item) => {
     const correctPage = page !== "favorit" || favorites.includes(item.id);
     const correctCategory = category === "Semua Menu" || item.category === category;
     const correctSearch = `${item.name} ${item.description}`
@@ -361,6 +434,9 @@ useEffect(() => {
     setDetail(null);
     setDrawer(null);
     setToast(null);
+    if (nextPage === "pesanan") {
+      fetchActiveOrder();
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -369,15 +445,111 @@ useEffect(() => {
     document.getElementById("menu")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  function submitCheckout(event: FormEvent<HTMLFormElement>) {
+  async function submitCheckout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!meja || !customerName.trim() || !customerPhone.trim() || totalQuantity === 0) return;
-    setDrawer("preview");
+
+    setSubmitting(true);
+    setOrderError(null);
+
+    try {
+      const mejaNum = parseInt(meja, 10) || 1;
+      const payload = {
+        nomor_meja: mejaNum,
+        nama_pelanggan: customerName.trim(),
+        nomor_telepon: customerPhone.trim(),
+        metode_pembayaran: payment === "cash" ? "tunai" : "qris",
+        items: cartItems.map((item) => ({
+          menu_id: Number(item.id) || 1,
+          kuantitas: cart[item.id],
+        })),
+      };
+
+      const res = await fetch(`${API_BASE_URL}/api/customer/order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Gagal memproses pesanan");
+      }
+
+      setCreatedOrder(json.data);
+      setActiveOrder(json.data.pesanan);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("active_order_id", String(json.data.pesanan.id));
+      }
+      setCart({});
+      setDrawer("preview");
+    } catch (err: unknown) {
+      setOrderError(
+        err instanceof Error ? err.message : "Gagal menghubungi backend"
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function bayarQRIS(orderId: number) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/customer/order/${orderId}/bayar-qris`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Gagal verifikasi pembayaran QRIS");
+      fetchActiveOrder(orderId);
+      alert("Pembayaran QRIS Berhasil! Pesanan diteruskan ke dapur.");
+    } catch (err: unknown) {
+      alert(
+        err instanceof Error ? err.message : "Gagal memverifikasi pembayaran QRIS"
+      )
+    }
+  }
+
+  async function batalkanPesanan(orderId: number) {
+    const alasan = prompt("Masukkan alasan pembatalan pesanan:", "Salah pesan menu");
+    if (!alasan) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/customer/order/${orderId}/batal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alasan_batal: alasan }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Gagal membatalkan pesanan");
+      fetchActiveOrder(orderId);
+      alert("Pesanan berhasil dibatalkan.");
+    } catch (err: unknown) {
+      alert(
+        err instanceof Error ? err.message : "Gagal membatalkan pesanan"
+      );
+    }
   }
 
   function closeModal() {
     setDrawer(null);
     setDetail(null);
+    setOrderError(null);
+  }
+
+  
+  if (!viewReady) {
+    return (
+      <div
+        className="tk-simple-loading"
+        role="status"
+        aria-label="Memuat halaman"
+      >
+        <div className="tk-simple-loading-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    );
   }
 
   
@@ -439,19 +611,15 @@ useEffect(() => {
         <section className="tk-hero" aria-label="Selamat datang">
           <div className="tk-hero-copy">
             <span className="tk-eyebrow"><span /> YOUR COFFEE MOMENT</span>
-            <h1>Lorem Ipsum<br /><em>Lorem Ipsum</em></h1>
-            <p>lorem ipsum</p>
+            <h1>Pesan Langsung<br /><em>Dari Mejamu</em></h1>
+            <p>Nikmati menu kopi dan hidangan istimewa tanpa perlu antre di kasir. Pilih pesananmu sekarang!</p>
             <button className="tk-primary" onClick={goToMenu}>Jelajahi Menu <ArrowRight size={17} /></button>
-            <div
-                className="tk-hero-note"
-                style={{ visibility: "hidden" }}
-                >
-                <MapPin size={16} />
-                <span>Scan QR di meja untuk mulai memesan</span>
-                </div>
+            <div className="tk-hero-note">
+              <MapPin size={16} />
+              <span>Pemesanan otomatis terhubung ke Meja {meja || "01"}</span>
+            </div>
           </div>
-          <div className="tk-hero-photo" role="img" aria-label="Interior kafe bernuansa hangat">
-          </div>
+          <div className="tk-hero-photo" role="img" aria-label="Interior kafe bernuansa hangat"></div>
         </section>
       )}
 
@@ -491,8 +659,121 @@ useEffect(() => {
             role="tabpanel"
             aria-labelledby={orderTab === "ongoing" ? "tk-tab-ongoing" : "tk-tab-past"}
           >
-            {orderTab === "ongoing" ? (
-              totalQuantity > 0 ? (
+            
+          {orderTab === "ongoing" ? (
+            activeOrder ? (
+              <section
+                className="tk-empty-page"
+                style={{
+                  maxWidth: 540,
+                  margin: "32px auto",
+                  padding: "0 20px",
+                  textAlign: "left",
+                }}
+              >
+                <span className="tk-kicker">STATUS PESANAN TERKINI</span>
+                <h2>Pesanan #{activeOrder.id}</h2>
+
+                <div className="tk-receipt" style={{ marginTop: 16 }}>
+                  <div>
+                    <span>Nama Pelanggan</span>
+                    <strong>{activeOrder.nama_pelanggan}</strong>
+                  </div>
+                  <div>
+                    <span>Nomor Meja</span>
+                    <strong>Meja {activeOrder.nomor_meja}</strong>
+                  </div>
+                  <div>
+                    <span>Metode Pembayaran</span>
+                    <strong>{activeOrder.metode_pembayaran?.toUpperCase()}</strong>
+                  </div>
+                  <div>
+                    <span>Status Pembayaran</span>
+                    <strong
+                      style={{
+                        color: activeOrder.status_pembayaran === "paid"
+                          ? "#2e7d32"
+                          : "#d9534f",
+                      }}
+                    >
+                      {activeOrder.status_pembayaran === "paid"
+                        ? "LUNAS (PAID)"
+                        : "BELUM DIBAYAR (UNPAID)"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Status Pesanan</span>
+                    <strong
+                      style={{
+                        textTransform: "uppercase",
+                        color: "#9c6c4a",
+                      }}
+                    >
+                      {activeOrder.status_pesanan}
+                    </strong>
+                  </div>
+                  <div className="tk-receipt-total">
+                    <span>Total Biaya</span>
+                    <strong>{rupiah(activeOrder.total_harga || 0)}</strong>
+                  </div>
+                </div>
+
+                {activeOrder.status_pembayaran === "unpaid" &&
+                  activeOrder.metode_pembayaran === "qris" &&
+                  activeOrder.status_pesanan !== "dibatalkan" && (
+                    <button
+                      className="tk-primary tk-full"
+                      style={{ marginTop: 14 }}
+                      onClick={() => bayarQRIS(activeOrder.id)}
+                    >
+                      <QrCode size={18} /> Simulasi Bayar QRIS Sekarang
+                    </button>
+                  )}
+
+                {activeOrder.status_pembayaran === "unpaid" &&
+                  activeOrder.status_pesanan === "menunggu" && (
+                    <button
+                      type="button"
+                      className="tk-full"
+                      style={{
+                        marginTop: 10,
+                        background: "#fff",
+                        border: "1px solid #d9534f",
+                        color: "#d9534f",
+                        padding: "12px",
+                        borderRadius: "10px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                      onClick={() => batalkanPesanan(activeOrder.id)}
+                    >
+                      Batalkan Pesanan Ini
+                    </button>
+                  )}
+
+                <button
+                  type="button"
+                  className="tk-full"
+                  style={{
+                    marginTop: 10,
+                    background: "#f8f1ea",
+                    border: "none",
+                    color: "#7a5c43",
+                    padding: "12px",
+                    borderRadius: "10px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                  onClick={() => fetchActiveOrder(activeOrder.id)}
+                >
+                  <RefreshCw size={16} /> Perbarui Status
+                </button>
+              </section>
+            ) : totalQuantity > 0 ? (
                 <div className="tk-order-draft">
                   <span className="tk-order-status">Belum checkout</span>
                   <h3>Menu masih di keranjang</h3>
@@ -570,7 +851,7 @@ useEffect(() => {
 
           <div className={`tk-category-bar ${categoryScroll.right ? "tk-category-bar-more" : ""}`}>
             <div className="tk-category-list" role="group" aria-label="Kategori menu" ref={categoryListRef}>
-              {categories.map((item) => (
+              {dynamicCategories.map((item) => (
                 <button
                   key={item}
                   className={`tk-category ${category === item ? "tk-category-selected" : ""}`}
@@ -581,7 +862,6 @@ useEffect(() => {
                 </button>
               ))}
             </div>
-            
           </div>
 
           {visibleItems.length === 0 ? (
@@ -746,7 +1026,7 @@ useEffect(() => {
                         ))}
                       </div>
                       <div className="tk-total"><span>Subtotal ({totalQuantity} item)</span><strong>{rupiah(subtotal)}</strong></div>
-                      <p className="tk-helper">Harga final dan ketersediaan stok nantinya dikonfirmasi oleh backend.</p>
+                      <p className="tk-helper">Harga final dan ketersediaan stok akan dikonfirmasi oleh sistem.</p>
                       <button className="tk-primary tk-full" onClick={() => setDrawer("checkout")}>Lanjut Checkout <ArrowRight size={16} /></button>
                     </>
                   )}
@@ -757,34 +1037,63 @@ useEffect(() => {
                 <form className="tk-checkout" onSubmit={submitCheckout}>
                   <div className="tk-checkout-table"><MapPin size={19} /><span><small>LOKASI PEMESANAN</small><strong>{meja ? `Meja ${meja}` : "Nomor meja belum terdeteksi"}</strong></span></div>
                   {/* {!meja && <p className="tk-warning">Untuk melanjutkan, buka halaman dari QR Code meja. Saat pengembangan, coba URL <code>/?meja=07</code>.</p>} */}
+                  {orderError && (
+                    <div style={{ background: "#fde8e8", color: "#c62828", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
+                      {orderError}
+                    </div>
+                  )}
                   <label>Nama pelanggan<input required maxLength={60} placeholder="Masukkan nama" value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></label>
                   <label>Nomor telepon<input required type="tel" inputMode="tel" pattern="[0-9+ ]{8,16}" title="Masukkan 8–16 karakter berupa angka, spasi, atau tanda +" placeholder="Contoh: 081234567890" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></label>
                   <h3>Metode pembayaran</h3>
                   <div className="tk-payment-list">
                     <button type="button" className={payment === "qris" ? "tk-payment-selected" : ""} onClick={() => setPayment("qris")}><QrCode size={23} /><span><strong>QRIS</strong><small>Bayar dengan e-wallet atau mobile banking</small></span>{payment === "qris" && <Check size={18} />}</button>
-                    <button type="button" className={payment === "cash" ? "tk-payment-selected" : ""} onClick={() => setPayment("cash")}><Banknote size={23} /><span><strong>Tunai di kasir</strong><small>Bayar dengan menyebutkan nama dan nomor meja</small></span>{payment === "cash" && <Check size={18} />}</button>
+                    <button type="button" className={payment === "cash" ? "tk-payment-selected" : ""} onClick={() => setPayment("cash")}><Banknote size={23} /><span><strong>Tunai di kasir</strong><small>Bayar di meja kasir dengan sebutkan nama & nomor meja</small></span>{payment === "cash" && <Check size={18} />}</button>
                   </div>
                   <div className="tk-total"><span>Subtotal</span><strong>{rupiah(subtotal)}</strong></div>
-                  <button className="tk-primary tk-full" type="submit" disabled={!meja || totalQuantity === 0}>Lihat Pratinjau Pesanan <ArrowRight size={16} /></button>
+                  <button className="tk-primary tk-full" type="submit" disabled={submitting || totalQuantity === 0}>
+                    {submitting ? "Memproses Pesanan..." : "Kirim Pesanan ke Kasir"} <ArrowRight size={16} />
+                  </button>
                 </form>
               )}
 
               {!detail && drawer === "preview" && (
                 <div className="tk-preview">
                   <span className="tk-preview-icon"><Coffee size={33} /></span>
-                  <span className="tk-kicker">PRATINJAU • BUKAN TRANSAKSI AKTIF</span>
-                  <h3>Pesanan siap ditinjau</h3>
-                  <p>Ini hanya simulasi frontend. Belum ada pesanan yang dikirim ke kasir atau pembayaran yang diproses.</p>
+                  <span className="tk-kicker">PESANAN BERHASIL DIBUAT!</span>
+                  <h3>Pesanan #{createdOrder?.pesanan?.id || ""}</h3>
+                  <p>{createdOrder?.instruksi || "Pesanan kamu sudah tercatat di sistem."}</p>
+
+                  {createdOrder?.qris_payload && createdOrder?.pesanan?.status_pembayaran === "unpaid" && (
+                    <div style={{ margin: "20px auto", textAlign: "center" }}>
+                      <img
+                        src={createdOrder.qris_payload}
+                        alt="QRIS Code"
+                        style={{ width: 200, height: 200, margin: "0 auto", borderRadius: 12, border: "2px solid #e0d0c0" }}
+                      />
+                      <p style={{ marginTop: 8, fontSize: 13, color: "#7a5c43" }}>Scan kode QRIS di atas untuk melakukan pembayaran</p>
+                      <button
+                        type="button"
+                        className="tk-primary tk-full"
+                        style={{ marginTop: 12 }}
+                        onClick={() => bayarQRIS(createdOrder.pesanan.id)}
+                      >
+                        Simulasi Bayar QRIS Sekarang
+                      </button>
+                    </div>
+                  )}
+
                   <div className="tk-receipt">
-                    <div><span>Nama</span><strong>{customerName.trim()}</strong></div>
-                    <div><span>Nomor meja</span><strong>{meja}</strong></div>
-                    <div><span>Nomor telepon</span><strong>{customerPhone.trim()}</strong></div>
-                    <div><span>Jumlah item</span><strong>{totalQuantity}</strong></div>
-                    <div><span>Pembayaran</span><strong>{payment === "qris" ? "QRIS" : payment === "transfer" ? "Transfer bank" : "Tunai di kasir"}</strong></div>
-                    <div className="tk-receipt-total"><span>Total sementara</span><strong>{rupiah(subtotal)}</strong></div>
+                    <div><span>Nama</span><strong>{createdOrder?.pesanan?.nama_pelanggan || customerName.trim()}</strong></div>
+                    <div><span>Nomor meja</span><strong>Meja {createdOrder?.pesanan?.nomor_meja || meja}</strong></div>
+                    <div><span>Nomor telepon</span><strong>{createdOrder?.pesanan?.nomor_telepon || customerPhone.trim()}</strong></div>
+                    <div><span>Status Pembayaran</span><strong style={{ color: createdOrder?.pesanan?.status_pembayaran === "paid" ? "#2e7d32" : "#d9534f" }}>{createdOrder?.pesanan?.status_pembayaran?.toUpperCase() || "UNPAID"}</strong></div>
+                    <div><span>Status Pesanan</span><strong style={{ textTransform: "uppercase" }}>{createdOrder?.pesanan?.status_pesanan || "MENUNGGU"}</strong></div>
+                    <div className="tk-receipt-total"><span>Total Harga</span><strong>{rupiah(createdOrder?.pesanan?.total_harga || subtotal)}</strong></div>
                   </div>
-                  <div className="tk-warning">QRIS asli, nomor rekening, dan konfirmasi pembayaran baru tersedia setelah integrasi backend.</div>
-                  <button className="tk-primary tk-full" onClick={() => setDrawer("checkout")}>Kembali ke Checkout</button>
+
+                  <button className="tk-primary tk-full" onClick={() => { setDrawer(null); openPage("pesanan"); }}>
+                    Lihat Status di Tab Pesanan <ArrowRight size={16} />
+                  </button>
                 </div>
               )}
             </div>
